@@ -239,16 +239,24 @@ void buildAsyncInsertSelectPipeline(
         context = mutable_context;
     }
 
+    /// Apply trivial INSERT...SELECT optimization: for a trivial SELECT (no joins/subqueries),
+    /// raise max_block_size to match the INSERT block granularity so the SELECT produces a single
+    /// large block instead of many default-sized (~65k rows) blocks, preventing spurious
+    /// multi-block fallback to the synchronous insert path.
+    ContextPtr select_context = context;
+    if (destination)
+        InterpreterInsertQuery::applyTrivialInsertSelectOptimization(insert_query, destination->prefersLargeBlocks(), select_context);
+
     auto select_query_options = SelectQueryOptions(QueryProcessingStage::Complete, 1);
     QueryPipelineBuilder select_pipeline;
     if (settings[Setting::allow_experimental_analyzer])
     {
-        InterpreterSelectQueryAnalyzer interpreter_select(insert_query.select, context, select_query_options);
+        InterpreterSelectQueryAnalyzer interpreter_select(insert_query.select, select_context, select_query_options);
         select_pipeline = interpreter_select.buildQueryPipeline();
     }
     else
     {
-        InterpreterSelectWithUnionQuery interpreter_select(insert_query.select, context, select_query_options);
+        InterpreterSelectWithUnionQuery interpreter_select(insert_query.select, select_context, select_query_options);
         select_pipeline = interpreter_select.buildQueryPipeline();
     }
 
